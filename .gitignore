@@ -26,6 +26,15 @@ venv/
 ENV/
 env/
 
+# Node / Frontend
+node_modules/
+out/
+.vite/
+
+# Linting & Typechecking
+.mypy_cache/
+.ruff_cache/
+
 # Environment variables
 .env
 
@@ -38,6 +47,7 @@ env/
 # Testing
 .pytest_cache/
 .coverage
+coverage/
 htmlcov/
 
 # OS
@@ -47,3 +57,4 @@ Thumbs.db
 # STANG data files
 *.stg
 !examples/**/*.stg
+!tests/fixtures/*.stg

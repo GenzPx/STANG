@@ -2,303 +2,170 @@
 
 > **STANG is a rotational data container. It doesn't walk through data. It turns.**
 
-STANG is a custom, versioned, self-describing file format and toolkit for storing structured data in `.stg` files. It is **not** a database engine, **not** an SQL database, and **not** a replacement for SQLite or PostgreSQL. STANG is an experimental data container that accesses records through a circular rotation model rather than linear cursors.
+STANG is a custom, versioned, self-describing file format and toolkit for storing structured data in `.stg` files — with a built-in rotational access model, authenticated integrity and optional encryption. It is **not** a database engine, **not** an SQL database, and **not** a replacement for SQLite or PostgreSQL. STANG is a container that accesses records through a circular rotation model rather than linear cursors.
 
 ---
 
-## Table of Contents
+## Highlights
 
-1. [Quick Description](#quick-description)
-2. [Architecture Diagram](#architecture-diagram)
-3. [How STANG Works](#how-stang-works)
-4. [Why STANG Exists](#why-stang-exists)
-5. [Core Concepts](#core-concepts)
-6. [Routing Concept](#routing-concept)
-7. [Rotation Concept](#rotation-concept)
-8. [Supported Backends](#supported-backends)
-9. [Installation](#installation)
-10. [Quick Start](#quick-start)
-11. [Configuration Example](#configuration-example)
-12. [CLI Examples](#cli-examples)
-13. [API Overview](#api-overview)
-14. [Project Structure](#project-structure)
-15. [Development](#development)
-16. [Testing](#testing)
-17. [Security](#security)
-18. [Troubleshooting](#troubleshooting)
-19. [Roadmap](#roadmap)
-20. [Contributing](#contributing)
-21. [License](#license)
-
----
-
-## Quick Description
-
-STANG stores structured records inside a `.stg` file. Internally, records are split into blocks. Instead of a cursor that moves forward or backward, STANG exposes a **rotation engine**:
-
-- `rotate(+n)` — turn forward
-- `rotate(-n)` — turn backward
-- `current()` — inspect the active block
-- `read()` — decode records from the rotated view
-
-Rotations are purely logical. The physical block order never changes; only the logical offset does.
-
----
-
-## Architecture Diagram
-
-```text
-                 ┌─────────────┐
-                 │   DUMPER    │
-                 └──────┬──────┘
-                        │
-                        ▼
-                 ┌─────────────┐
-                 │     CLI     │
-                 └──────┬──────┘
-                        │
-                        ▼
-              ┌───────────────────┐
-              │       STANG       │
-              │  Rotational Data  │
-              │     Container     │
-              └─────────┬─────────┘
-                        │
-         ┌──────────────┼──────────────┐
-         ▼              ▼              ▼
-    ┌─────────┐   ┌──────────┐   ┌──────────┐
-    │ Encoder │   │ Rotation │   │ Decoder  │
-    └────┬────┘   │  Engine  │   └────┬─────┘
-         │        └──────────┘        │
-         ▼                            ▼
-    ┌─────────┐                  ┌──────────┐
-    │  .stg   │                  │   JSON   │
-    │  file   │                  │  /CSV    │
-    └─────────┘                  └──────────┘
-```
-
-> This diagram is an illustrative example. STANG is a file-format toolkit; the actual pipeline is configured by the commands you run.
-
----
-
-## How STANG Works
-
-1. **Input** — JSON records are read from a file or API.
-2. **Schema inference** — STANG infers a flat schema from the records.
-3. **Block partitioning** — Records are distributed round-robin across N blocks.
-4. **Rotation state** — A logical rotation index is stored in the header.
-5. **Serialization** — Header, schema, block table, blocks, and checksum are written.
-6. **Decode** — The file is validated, blocks are reordered from the rotation state, and records are merged.
-
----
-
-## Why STANG Exists
-
-STANG was created as an educational and experimental format to explore:
-
-- Non-linear data access models.
-- Self-describing, versioned binary containers.
-- Deterministic encode/decode round-trips.
-- Pluggable output dumpers.
-
-It is intentionally simple and uses only the Python standard library at runtime.
-
----
-
-## Core Concepts
-
-| Concept | Description |
-|--------|-------------|
-| Container | A single `.stg` file holding metadata, schema, blocks, and checksum. |
-| Block | A subset of records stored inside the container. |
-| Schema | Flattened type description of record fields. |
-| Rotation state | Logical index indicating the current active block. |
-| Checksum | SHA-256 integrity digest over the payload. |
-
----
-
-## Routing Concept
-
-In STANG, "routing" refers to how a request or decode operation flows through the container:
-
-```text
-Request
-   ↓
-STANG Container
-   ↓
-RotationEngine (select current view)
-   ↓
-Block reordering
-   ↓
-Record merge
-   ↓
-Output (JSON/CSV/Raw)
-```
-
-This is a conceptual model. The CLI implements it through `encode`, `decode`, `rotate`, and `dump`.
-
----
-
-## Rotation Concept
-
-Imagine a steering wheel with four positions:
-
-```text
-A → B → C → D → A
-A ← D ← C ← B ← A
-```
-
-With four nodes and current state `3`:
-
-```text
-rotate(+1) → (3 + 1) % 4 = 0
-```
-
-STANG never moves data when rotating. It only changes the logical offset used during decode.
-
----
-
-## Supported Backends
-
-STANG does not require an external database. The default storage backend is the local filesystem via `.stg` files. The example documentation uses SQLite as a conceptual backend adapter, but the core format is backend-agnostic.
+- **Rotational access** — records are packed round-robin into blocks; a `rotation_state` integer in the header decides where logical reading starts. Rotating a container rewrites 4 bytes, never the payload.
+- **Byte-deterministic** — canonical JSON with sorted keys, stable layouts, reproducible output across runs (and across the Python and TypeScript implementations).
+- **Sealed containers** — every file ends with a 32-byte digest covering all preceding bytes: SHA-256, keyed HMAC-SHA256, or an Encrypt-then-MAC AEAD for encrypted files.
+- **Compression** — per-block zlib (RFC 1950), typically 50–60% smaller on text records.
+- **Encryption** — PBKDF2-HMAC-SHA256 (100k iterations) → per-block HMAC-SHA256 counter-mode stream, per-block nonce, Encrypt-then-MAC trailer.
+- **Self-describing** — dot-flattened schema inferred across *all* records and embedded in the header extension.
+- **Two wire formats** — STG2 (current) and STG1 (legacy, read/write for compatibility).
+- **Zero runtime dependencies** — Python ≥ 3.10 stdlib only.
+- **STANG Studio** — an interactive browser workbench (encode/decode/inspect/verify) shipped in this repository, byte-compatible with the Python package.
 
 ---
 
 ## Installation
 
-Requires Python 3.10 or newer.
+Requires **Python 3.10+**.
 
 ```bash
-git clone <repository>
-cd stang
+git clone https://github.com/GenzPx/STANG.git
+cd STANG
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
 Verify:
 
 ```bash
-stang --version
-stang --help
+stang --version   # stang 2.0.0
+stang status
 ```
 
 ---
 
 ## Quick Start
 
-Create a JSON file:
-
 ```bash
 cat > people.json <<'EOF'
 [
-  {"id": 1, "name": "Genz", "value": "example"},
-  {"id": 2, "name": "Ana", "value": "sample"}
+  {"id": 1, "name": "Genz", "value": "example", "active": true},
+  {"id": 2, "name": "Ana", "value": "sample", "active": false}
 ]
 EOF
-```
 
-Encode, inspect, dump, and decode:
-
-```bash
-stang encode people.json people.stg --blocks 4 --rotation 1
+stang encode people.json people.stg --blocks 4 --rotation 1 --compress
 stang inspect people.stg
-stang dump people.stg
-stang dump people.stg --format json
+stang verify people.stg
+stang dump people.stg --format markdown
 stang decode people.stg people-out.json
 ```
 
----
-
-## Configuration Example
-
-A conceptual YAML configuration for an extended STANG router (not required for the CLI):
-
-```yaml
-stang:
-  name: demo-router
-
-rotation:
-  mode: circular
-  initial_position: 0
-
-nodes:
-  - id: A
-    type: validation
-  - id: B
-    type: transform
-  - id: C
-    type: backend
-```
-
-See `docs/configuration.md` for full details.
-
----
-
-## CLI Examples
+Encrypt with a passphrase:
 
 ```bash
-stang init empty.stg
-stang encode input.json output.stg --blocks 8 --rotation 3
-stang decode output.stg input.json
-stang dump output.stg
-stang dump output.stg --format csv
-stang dump output.stg --format raw
-stang inspect output.stg
-stang rotate output.stg +1
-stang verify output.stg
+export STANG_PASSPHRASE="$(stang keygen)"
+stang encode people.json people.stg --encrypt --passphrase-env STANG_PASSPHRASE
+stang decode people.stg out.json --passphrase-env STANG_PASSPHRASE
 ```
+
+Decode semantics guarantee `decode(encode(data)) == data` regardless of rotation state.
 
 ---
 
-## API Overview
+## STANG Studio (browser)
+
+An interactive single-page workbench lives in this repository: pick a sample dataset or paste JSON, encode it with your chosen block count / rotation / flags, and watch the container come apart byte-by-byte — segment map, hex dump, block inspector, schema table, integrity badge. It decodes pasted hex/base64 or dropped `.stg` files, and the codec is **byte-compatible with the Python package** (see `scripts/conformance.mjs`).
+
+```bash
+npm install
+npm run build       # produces dist/index.html (single file)
+npm run dev         # local dev server
+npm run conformance # verify JS codec == Python codec on golden vectors
+```
+
+Open the built page, or run `npm run preview`.
+
+---
+
+## CLI at a glance
+
+| Command | Purpose |
+|---------|---------|
+| `stang init FILE [--blocks N] [--compress] [--encrypt] [--hmac]` | Create an empty container |
+| `stang encode INPUT.json OUTPUT.stg [--blocks N] [--rotation N] [--compress] [--encrypt] [--hmac] [--format stg1\|stg2]` | Encode JSON → `.stg` |
+| `stang decode INPUT.stg OUTPUT.json [--pretty]` | Decode `.stg` → JSON |
+| `stang dump INPUT.stg [--format block\|json\|ndjson\|csv\|tsv\|markdown\|stats\|raw]` | Render records with a dumper plugin |
+| `stang inspect INPUT.stg [--json]` | Header metadata without full decode |
+| `stang rotate INPUT.stg OFFSET` | Bump the logical rotation state (±N) |
+| `stang verify INPUT.stg` | Authenticate; exit 0 valid · 1 invalid · 2 credentials required |
+| `stang convert INPUT.stg OUTPUT.stg --to stg1\|stg2` | Re-wrap between wire formats |
+| `stang keygen [--bytes N] [--hex]` | Generate a strong random passphrase |
+| `stang status` | Runtime summary |
+
+Secrets are never passed as bare arguments — use `--passphrase-env VAR`, `--passphrase-file PATH`, `--key-env VAR` or `--key-file PATH`, or the interactive prompt. `-` as file argument means stdin/stdout.
+
+Full reference: [`docs/cli.md`](docs/cli.md).
+
+---
+
+## API overview
 
 ```python
 from stang import encode_stg, decode_stg, save_stg, load_stg
 
 records = [{"id": 1, "name": "Genz"}]
-container = encode_stg(records, block_count=4, rotation_state=1)
-
+container = encode_stg(records, block_count=4, rotation_state=1, compress=True)
 assert decode_stg(container) == records
 
-save_stg("data.stg", records)
+save_stg("data.stg", records, compress=True)
 assert load_stg("data.stg") == records
+
+# Encryption
+save_stg("secret.stg", records, passphrase="correct horse battery staple")
+assert load_stg("secret.stg", passphrase="correct horse battery staple") == records
 ```
+
+Full reference: [`docs/api.md`](docs/api.md).
 
 ---
 
-## Project Structure
+## How a container fits together (STG2)
 
 ```text
-stang/
-├── stang/
-│   ├── __init__.py
-│   ├── cli.py
-│   ├── container.py
-│   ├── encoder.py
-│   ├── decoder.py
-│   ├── rotation.py
-│   ├── checksum.py
-│   ├── schema.py
-│   ├── blocks.py
-│   └── dumpers/
-│       ├── __init__.py
-│       ├── json.py
-│       ├── csv.py
-│       ├── raw.py
-│       └── block.py
-├── tests/
-├── docs/
-├── examples/
-├── README.md
-├── SPEC.md
-├── ARCHITECTURE.md
-├── CONTRIBUTING.md
-├── CHANGELOG.md
-├── SECURITY.md
-├── CODE_OF_CONDUCT.md
-├── LICENSE
-└── pyproject.toml
+┌──────────────┬───────────────────┬───────────────────────┬──────────┐
+│ Header · 32B │ Extension · JSON  │ Block entries · len+  │ Trailer  │
+│ magic STG2   │ schema + (kdf)    │ blob (zlib/AEAD)      │ 32 B     │
+│ flags rotation ext_len …          │                       │ SHA-256/ │
+│ salt         │                   │                       │ HMAC     │
+└──────────────┴───────────────────┴───────────────────────┴──────────┘
+```
+
+Normative details: [`SPEC.md`](SPEC.md).
+
+## Core concepts
+
+| Concept | Description |
+|---------|-------------|
+| Container | One `.stg` file: header, extension, blocks, trailer |
+| Block | A subset of records; round-robin by record index |
+| Schema | Dot-flattened field types, merged across all records |
+| Rotation state | Logical read offset; `(state + offset) mod N` |
+| Trailer | 32-byte digest over everything before it |
+
+---
+
+## Project structure
+
+```text
+stang/            # Python package (zero runtime deps)
+  container.py    #   STG1 + STG2 serialization & validation
+  crypto.py       #   PBKDF2 + HMAC-SHA256 AEAD construction
+  encoder.py decoder.py blocks.py rotation.py schema.py checksum.py errors.py
+  cli.py nodes.py dumpers/
+src/              # STANG Studio (React + TypeScript, single-file build)
+  stg/codec.ts    #   byte-compatible TS implementation of the format
+  components/     #   encode/decode panels, byte map, rotation dial, hex view
+tests/            # pytest suite (97 tests) + golden cross-language vectors
+scripts/          # conformance.mjs — Python ↔ JS byte-equality checks
+examples/ docs/ SPEC.md ARCHITECTURE.md
 ```
 
 ---
@@ -306,69 +173,57 @@ stang/
 ## Development
 
 ```bash
-git clone <repository>
-cd stang
-python -m venv .venv
-source .venv/bin/activate
 pip install -e ".[dev]"
+pytest                      # 97 tests
+ruff check stang tests      # lint
+mypy stang                  # strict type-check
+npm install && npm run build && npm run conformance
 ```
 
----
-
-## Testing
-
-```bash
-pytest
-pytest -v
-pytest --cov=stang
-```
+CI runs ruff + mypy + pytest on Python 3.10–3.12 and builds the studio on Node 22.
 
 ---
 
 ## Security
 
-STANG uses checksums and magic/version validation to detect accidental corruption. It does not provide encryption or authentication by default. Never store secrets in `.stg` files unless you encrypt them first. See `SECURITY.md` and `docs/security.md`.
+- SHA-256 detects accidental corruption; HMAC-SHA256 and AEAD detect tampering.
+- Verification always happens **before** payload parsing; a bad file never yields partial records.
+- STANG is a container, not a security boundary: header, salt, extension (schema field names) and block nonces are visible. Use opaque field names if that matters.
+- Never ship passphrases on the command line; use env vars or files.
+
+See [`SECURITY.md`](SECURITY.md) and [`docs/security.md`](docs/security.md).
+
+---
+
+## Roadmap
+
+- [x] Optional encryption layer (AEAD, Encrypt-then-MAC)
+- [x] HMAC-SHA256 authenticated containers
+- [x] Compression support (zlib, per block)
+- [x] Additional dumper plugins (NDJSON, TSV, Markdown, stats)
+- [x] Byte-compatible web implementation + conformance vectors
+- [ ] Streaming encoder for very large files
+- [ ] Language bindings reference (Go / Rust)
 
 ---
 
 ## Troubleshooting
 
 | Problem | Cause | Solution |
-|--------|-------|----------|
+|---------|-------|----------|
 | `Checksum mismatch` | File corrupted | Restore from backup |
+| `Authentication failed` | Wrong passphrase or tampered file | Check credentials; re-verify source |
+| `Integrity check failed` | Wrong/missing HMAC key | Supply `--key-env`/`--key-file` |
 | `Invalid magic bytes` | Not a `.stg` file | Check input file |
-| `Unsupported STG version` | Old/new tool | Upgrade/downgrade STANG |
+| `Unsupported STG version` | Tool too old/new | Upgrade STANG |
 | `File too short` | Truncated file | Re-encode from source |
 
-See `docs/troubleshooting.md` for more.
-
----
-
-## Roadmap
-
-- [ ] Optional encryption layer
-- [ ] Streaming encoder for large files
-- [ ] Additional dumper plugins (YAML, TOML)
-- [ ] Compression support
-- [ ] Language bindings reference
-
----
+See [`docs/troubleshooting.md`](docs/troubleshooting.md) for more.
 
 ## Contributing
 
-We welcome contributions. Please read `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` first.
-
-```bash
-git checkout -b feature/my-feature
-pytest
-git commit -m "feat: add ..."
-git push origin feature/my-feature
-```
-
----
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
 ## License
 
-See `LICENSE`. Until a license is chosen explicitly, the placeholder text reads:
-
-> LICENSE TO BE DETERMINED
+See [`LICENSE`](LICENSE) — LICENSE TO BE DETERMINED (all rights reserved).

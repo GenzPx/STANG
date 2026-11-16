@@ -7,8 +7,10 @@ This document explains how to create custom nodes for extended STANG routers.
 ```python
 from stang.nodes import Node
 
-class ExampleNode(Node):
+class UppercaseNode(Node):
     def process_request(self, request):
+        if "name" in request:
+            request["name"] = str(request["name"]).upper()
         return request
 
     def process_response(self, response):
@@ -17,21 +19,31 @@ class ExampleNode(Node):
 
 ## Lifecycle
 
-1. `__init__` — configure the node.
-2. `process_request` — transform or validate a request.
-3. `process_response` — transform a response.
+1. `__init__(config, *, name=None)` — configure the node. A `timeout` (seconds) may be set via `config["timeout"]`.
+2. `process_request` — transform or validate a request. Must return a `dict`.
+3. `process_response` — transform a response. Must return a `dict`.
+
+## Running a Pipeline
+
+```python
+from stang.nodes import Node, Pipeline, PipelineError
+
+pipeline = Pipeline([UppercaseNode()])
+pipeline.add(AnotherNode())
+
+try:
+    out = pipeline.process_request({"name": "genz"})
+except PipelineError as exc:
+    print(exc.node, exc.stage, exc)
+```
+
+- Requests run through nodes **in order**; responses run through them **in reverse order**.
+- Node exceptions are wrapped in `PipelineError` with the failing node name and stage.
+- A node returning a non-`dict` raises `PipelineError` as well.
 
 ## Input/Output Contract
 
 Nodes receive and return plain Python dictionaries. They should not mutate the input unless documented.
-
-## Error Handling
-
-Raise `NodeError` or `ValueError` for invalid input. The pipeline will stop and report the error.
-
-## Timeout
-
-Long-running nodes should accept a `timeout` parameter and enforce it.
 
 ## Registration
 
@@ -41,15 +53,13 @@ Register custom nodes in the router configuration:
 nodes:
   - id: example
     type: custom
-    class: mypackage.nodes.ExampleNode
+    class: mypackage.nodes.UppercaseNode
 ```
 
 ## Testing
 
-Unit test nodes in isolation:
-
 ```python
-def test_example_node():
-    node = ExampleNode()
-    assert node.process_request({"x": 1}) == {"x": 1}
+def test_uppercase_node():
+    node = UppercaseNode()
+    assert node.process_request({"name": "genz"}) == {"name": "GENZ"}
 ```

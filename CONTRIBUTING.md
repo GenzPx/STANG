@@ -31,14 +31,20 @@ Thank you for your interest in STANG! This document outlines how to contribute.
    ```
 5. Lint and type-check:
    ```bash
-   ruff check .
+   ruff check stang tests
    mypy stang
    ```
-6. Commit using clear messages:
+6. If you touch the studio or the wire format, also verify the TypeScript side:
+   ```bash
+   npm install
+   npm run build
+   npm run conformance
+   ```
+7. Commit using clear messages:
    ```bash
    git commit -m "feat: add raw dumper option"
    ```
-7. Push and open a Pull Request.
+8. Push and open a Pull Request.
 
 ## Reporting Issues
 

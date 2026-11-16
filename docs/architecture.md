@@ -11,13 +11,11 @@ API (Python module)
  ▼
 STANG Container
  │
- ├── RequestContext (conceptual)
  ├── RotationEngine
- ├── RouteResolver (conceptual)
- ├── Pipeline (conceptual)
- ├── Node system (conceptual)
- ├── Metrics (conceptual)
- └── Backend Adapter (conceptual)
+ ├── Pipeline (stang.nodes)
+ ├── Node system (stang.nodes)
+ ├── Header Extension (schema + KDF)   [STG2]
+ └── Trailer (SHA-256 | HMAC | AEAD)
 ```
 
 ## Responsibilities
@@ -32,7 +30,7 @@ Programmatic interface (`encode_stg`, `decode_stg`, `STGContainer`, etc.).
 
 ### STANG Container
 
-Holds the parsed or created file representation: header, schema, blocks, checksum.
+Holds the parsed or created file representation: header, extension (schema), blocks, trailer. Auto-detects STG1/STG2.
 
 ### RotationEngine
 

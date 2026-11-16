@@ -29,7 +29,7 @@ def main() -> int:
     assert_eq(engine.rotate(2), 2, "rotate(+2)")
     assert_eq(engine.rotate(4), 1, "rotate(+4)")
     assert_eq(engine.rotate(-2), 4, "rotate(-2)")
-    assert_eq(engine.rotate(100), 0, "rotate overflow")
+    assert_eq(engine.rotate(100), 4, "rotate overflow is state-preserving modulo count")
 
     # Round-trip
     records = [
@@ -39,6 +39,13 @@ def main() -> int:
     container = encode_stg(records, block_count=3, rotation_state=1)
     decoded = decode_stg(container)
     assert_eq(decoded, records, "round-trip")
+
+    # Encrypted round-trip
+    encrypted = encode_stg(records, block_count=3, passphrase="verify-secret", compress=True)
+    blob = encrypted.serialize()
+    assert b"Genz" not in blob, "ciphertext must not contain plaintext"
+    restored = STGContainer.deserialize(blob, passphrase="verify-secret")
+    assert_eq(decode_stg(restored), records, "encrypted round-trip")
 
     # File round-trip
     with tempfile.TemporaryDirectory() as tmp:
@@ -53,11 +60,17 @@ def main() -> int:
         assert cli_main(["rotate", str(path), "+1"]) == 0
         assert cli_main(["verify", str(path)]) == 0
 
-    # Determinism
-    data = json.dumps(records, sort_keys=True).encode()
+    # Determinism (plain container: byte-identical serializations)
     c1 = STGContainer.deserialize(encode_stg(records, block_count=4).serialize())
     c2 = STGContainer.deserialize(encode_stg(records, block_count=4).serialize())
     assert_eq(c1.serialize(), c2.serialize(), "deterministic")
+
+    # Legacy v1 containers still load
+    legacy = encode_stg(records, block_count=2, format_version=1).serialize()
+    assert legacy[:4] == b"STG1"
+    assert_eq(
+        decode_stg(STGContainer.deserialize(legacy)), records, "v1 compatibility"
+    )
 
     print("All inline verification checks passed.")
     return 0

@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from stang.blocks import partition_records
-from stang.container import STGContainer
+from stang.container import (
+    FLAG_COMPRESSED,
+    FLAG_ENCRYPTED,
+    FLAG_HMAC,
+    VERSION_V2,
+    STGContainer,
+)
 from stang.schema import Schema
 
 DEFAULT_BLOCK_COUNT = 4
@@ -19,6 +25,12 @@ def encode_stg(
     block_count: int = DEFAULT_BLOCK_COUNT,
     rotation_state: int = 0,
     flags: int = 0,
+    *,
+    passphrase: str | bytes | None = None,
+    integrity_key: bytes | str | None = None,
+    compress: bool = False,
+    format_version: int = VERSION_V2,
+    validate: bool = False,
 ) -> STGContainer:
     """Encode structured records into a :class:`STGContainer`.
 
@@ -31,26 +43,61 @@ def encode_stg(
     rotation_state:
         Initial logical rotation state.
     flags:
-        Reserved container flags.
+        Explicit flag override. When ``compress=True`` is also passed,
+        :data:`stang.container.FLAG_COMPRESSED` is OR-ed in automatically.
+    passphrase:
+        Encrypt block payloads (implies PBKDF2 key derivation +
+        Encrypt-then-MAC). Requires format version 2.
+    integrity_key:
+        Candidate integrity key. When set and no passphrase is given, the
+        container trailer becomes HMAC-SHA256 over the payload.
+    compress:
+        zlib-compress each block payload before (optional) encryption.
+    format_version:
+        Wire format to write: ``2`` (default) or ``1`` (legacy).
+    validate:
+        Validate every record against the inferred schema.
 
-    Returns
+    Returns:
     -------
     STGContainer
         A fully constructed in-memory container.
     """
     if block_count <= 0:
         raise ValueError("block_count must be positive")
-    if not records:
-        schema = Schema({})
-    else:
-        # Infer schema from all records, merging fields.
-        merged: dict[str, Any] = {}
-        for record in records:
-            merged.update(record)
-        schema = Schema.infer(merged)
+    if passphrase is not None and integrity_key is not None:
+        raise ValueError("Pass either passphrase (encryption) or integrity_key (HMAC), not both.")
+    record_list = list(records)
+    for record in record_list:
+        if not isinstance(record, Mapping):
+            raise TypeError(f"Records must be mappings, got {type(record).__name__}.")
 
-    blocks = partition_records(records, block_count)
-    return STGContainer(schema, blocks, rotation_state=rotation_state, flags=flags)
+    schema = Schema.infer_many(record_list) if record_list else Schema({})
+    if validate:
+        for record in record_list:
+            schema.validate_record(record, allow_extra=True)
+
+    effective_flags = flags
+    if compress:
+        effective_flags |= FLAG_COMPRESSED
+    if passphrase is not None:
+        effective_flags |= FLAG_ENCRYPTED
+    elif integrity_key is not None:
+        effective_flags |= FLAG_HMAC
+
+    if format_version == 1 and (effective_flags & (FLAG_COMPRESSED | FLAG_ENCRYPTED | FLAG_HMAC)):
+        raise ValueError("Format version 1 does not support compression, encryption or HMAC.")
+
+    blocks = partition_records(record_list, block_count)
+    return STGContainer(
+        schema,
+        blocks,
+        rotation_state=rotation_state,
+        flags=effective_flags,
+        passphrase=passphrase,
+        integrity_key=integrity_key,
+        format_version=format_version,
+    )
 
 
 def save_stg(
@@ -59,23 +106,67 @@ def save_stg(
     block_count: int = DEFAULT_BLOCK_COUNT,
     rotation_state: int = 0,
     flags: int = 0,
+    *,
+    passphrase: str | bytes | None = None,
+    integrity_key: bytes | str | None = None,
+    compress: bool = False,
+    format_version: int = VERSION_V2,
+    validate: bool = False,
 ) -> None:
     """Encode *records* and write the resulting STG file to *path*."""
-    container = encode_stg(records, block_count, rotation_state, flags)
+    container = encode_stg(
+        records,
+        block_count,
+        rotation_state,
+        flags,
+        passphrase=passphrase,
+        integrity_key=integrity_key,
+        compress=compress,
+        format_version=format_version,
+        validate=validate,
+    )
     Path(path).write_bytes(container.serialize())
 
 
-def encode_from_json(data: bytes, block_count: int = DEFAULT_BLOCK_COUNT) -> STGContainer:
+def encode_from_json(
+    data: bytes,
+    block_count: int = DEFAULT_BLOCK_COUNT,
+    *,
+    passphrase: str | bytes | None = None,
+    integrity_key: bytes | str | None = None,
+    compress: bool = False,
+    format_version: int = VERSION_V2,
+) -> STGContainer:
     """Encode from a raw JSON byte payload.
 
     Accepts either a single object (treated as one record) or an array of
     objects.
     """
-    parsed = json.loads(data.decode("utf-8"))
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Input is not valid JSON: {exc}") from exc
     if isinstance(parsed, dict):
         records = [parsed]
     elif isinstance(parsed, list):
+        if not all(isinstance(item, Mapping) for item in parsed):
+            raise ValueError("JSON array must contain only objects.")
         records = parsed
     else:
         raise ValueError("JSON payload must be an object or an array of objects")
-    return encode_stg(records, block_count)
+    return encode_stg(
+        records,
+        block_count,
+        passphrase=passphrase,
+        integrity_key=integrity_key,
+        compress=compress,
+        format_version=format_version,
+    )
+
+
+__all__ = [
+    "DEFAULT_BLOCK_COUNT",
+    "encode_from_json",
+    "encode_stg",
+    "save_stg",
+]

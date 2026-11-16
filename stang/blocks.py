@@ -11,11 +11,11 @@ from typing import Any
 
 
 def partition_records(records: Sequence[Any], block_count: int) -> list[list[Any]]:
-    """Distribute *records* evenly across *block_count* blocks.
+    """Distribute records evenly across ``block_count`` blocks.
 
     Distribution is round-robin by record index to keep the layout stable and
-trivially reversible. Empty containers still create the requested number of
-empty blocks so the rotational model remains well-defined.
+    trivially reversible. Empty containers still create the requested number of
+    empty blocks so the rotational model remains well-defined.
     """
     if block_count <= 0:
         raise ValueError("block_count must be positive")
@@ -34,9 +34,18 @@ def merge_blocks(blocks: Sequence[Sequence[Any]]) -> list[Any]:
     if not blocks:
         return []
     result: list[Any] = []
-    max_len = max(len(block) for block in blocks) if blocks else 0
+    max_len = max(len(block) for block in blocks)
     for offset in range(max_len):
         for block in blocks:
             if offset < len(block):
                 result.append(block[offset])
     return result
+
+
+def rotate_blocks(blocks: Sequence[Sequence[Any]], rotation_state: int) -> list[list[Any]]:
+    """Return blocks logically reordered starting at ``rotation_state``."""
+    if not blocks:
+        return []
+    idx = rotation_state % len(blocks)
+    reordered = list(blocks[idx:]) + list(blocks[:idx])
+    return [list(block) for block in reordered]

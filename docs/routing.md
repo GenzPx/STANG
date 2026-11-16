@@ -51,8 +51,8 @@ Response
 ## Failure Handling
 
 - Invalid input is rejected with a clear error.
-- Corrupted containers fail checksum validation.
-- Timeouts and backend errors bubble up to the caller.
+- Corrupted containers fail trailer verification (SHA-256 / HMAC / AEAD).
+- Timeouts are enforced per node (`config["timeout"]`); node failures are wrapped in `PipelineError` (node + stage) and bubble up to the caller.
 
 ## Fallback
 

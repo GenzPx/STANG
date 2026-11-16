@@ -41,6 +41,16 @@ engine.rotate(-1)
 engine.current_position()  # 1
 ```
 
+## CLI
+
+```bash
+stang rotate data.stg +2    # bump forward
+stang rotate data.stg -1    # bump backward
+```
+
+On encrypted containers the file is transparently re-sealed with fresh nonces; the passphrase
+is requested via `--passphrase-env` / `--passphrase-file`.
+
 ## Concurrency
 
 Rotation state must live in a safe context (e.g., per-request). Do not share a single `RotationEngine` across concurrent requests unless it is read-only.

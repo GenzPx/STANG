@@ -14,6 +14,17 @@ pip install -e ".[dev]"
 
 ```bash
 pytest
+ruff check stang tests
+mypy stang
+```
+
+## Web Studio
+
+```bash
+npm install
+npm run typecheck
+npm run build
+npm run conformance   # Python ↔ TypeScript byte-equality on golden fixtures
 ```
 
 ## Coding Conventions

@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stang"
-version = "1.0.0"
-description = "STANG: a rotational data container file format"
+version = "2.0.0"
+description = "STANG: a rotational data container file format and toolkit"
 readme = "README.md"
 license = {text = "LICENSE TO BE DETERMINED"}
 requires-python = ">=3.10"
 authors = [
     {name = "STANG Contributors"},
 ]
-keywords = ["container", "file-format", "rotation", "encoder", "decoder"]
+keywords = ["container", "file-format", "rotation", "encoder", "decoder", "binary"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -50,8 +50,13 @@ strict = true
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "D", "UP", "B", "C4", "SIM"]
 ignore = ["D100", "D104", "D203", "D213"]
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D101", "D102", "D103", "D107"]
+
+[tool.ruff.lint.pydocstyle]
 convention = "google"

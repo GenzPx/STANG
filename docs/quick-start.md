@@ -17,7 +17,7 @@ EOF
 ## 2. Encode to STG
 
 ```bash
-stang encode demo.json demo.stg --blocks 4 --rotation 1
+stang encode demo.json demo.stg --blocks 4 --rotation 1 --compress
 ```
 
 ## 3. Inspect
@@ -30,13 +30,13 @@ Output:
 
 ```text
 File       : demo.stg
-Magic      : STG1
-Version    : 1
-Flags      : 0
+Magic      : STG2
+Format     : STG2
 Blocks     : 4
 Rotation   : 1
 Records    : 3
-Schema     : {...}
+Flags      : compressed
+Schema     : {'id': 'integer', 'meta.score': 'float', ...}
 Checksum   : VALID
 ```
 
@@ -44,8 +44,9 @@ Checksum   : VALID
 
 ```bash
 stang dump demo.stg
-stang dump demo.stg --format json
+stang dump demo.stg --format markdown
 stang dump demo.stg --format csv
+stang dump demo.stg --format stats
 ```
 
 ## 5. Decode
@@ -56,13 +57,22 @@ stang decode demo.stg demo-out.json
 
 The output JSON is semantically identical to the input.
 
+## 6. Encrypt
+
+```bash
+export STANG_PASSPHRASE="$(stang keygen)"
+stang encode demo.json secret.stg --encrypt --passphrase-env STANG_PASSPHRASE
+stang verify secret.stg --passphrase-env STANG_PASSPHRASE
+stang decode secret.stg secret.json --passphrase-env STANG_PASSPHRASE
+```
+
 ## Lifecycle
 
 ```text
 demo.json
-   ↓ encode
+   ↓ encode (+compress, +encrypt)
 demo.stg
-   ↓ rotate / dump / inspect / verify / status
+   ↓ rotate / dump / inspect / verify / convert
 decoded view
    ↓ decode
 demo-out.json

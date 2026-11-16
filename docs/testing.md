@@ -3,8 +3,7 @@
 ## Running Tests
 
 ```bash
-pytest
-pytest -v
+pytest                      # or: pytest -v
 pytest --cov=stang
 ```
 
@@ -12,32 +11,44 @@ pytest --cov=stang
 
 ### Unit Tests
 
-Test individual modules such as `rotation.py`, `checksum.py`, and `schema.py`.
+`test_rotation.py`, `test_schema`-adjacent tests in `test_encoding.py`, and `test_crypto.py`
+(key-derivation vectors, keystream pinning, nonce behavior).
 
-### Integration Tests
+### Golden Vectors
 
-`test_encoding.py` and `test_decoding.py` verify JSON → STG → JSON round-trips.
+`test_vectors.py` validates `tests/fixtures/golden*.stg` byte-for-byte. The same fixtures are
+consumed by the TypeScript implementation via `scripts/conformance.mjs` — run it with
+`node scripts/conformance.mjs` (or `npm run conformance`).
 
-### Routing Tests
+### CLI End-to-End
 
-Conceptual routing tests can be added when custom nodes are implemented.
+`test_cli.py` drives `stang.cli.main()` with temporary files: encode/decode/verify/rotate/
+convert/dump/inspect/keygen, credential handling and exit codes.
 
-### Rotation Tests
+### Integrity & Security
 
-`test_rotation.py` covers positive, negative, overflow, and reset behavior.
+`test_integrity.py` — corrupted digests, wrong passphrases, wrong HMAC keys, header tampering,
+truncated files, v1 checksum enforcement.
 
-### Adapter Tests
+### Dumpers & Nodes
 
-Add tests for any database adapter under `tests/test_adapters/`.
+`test_dumpers.py` — every registered dumper on sample and empty containers.
+`test_nodes.py` — pipeline ordering (request forward, response reverse), timeout wrapping,
+`PipelineError` attribution.
 
-### API Tests
+### Cross-check
 
-For HTTP wrappers, use `pytest` with `httpx` or `requests`.
+`verify.py` performs a fast standalone sanity check; it is not a substitute for pytest.
 
-### Concurrency Tests
+### Concurrency
 
-Ensure each request uses its own `RotationEngine` context.
+Ensure each request uses its own `RotationEngine` context; the library keeps no global state.
 
-### Failure Tests
+## Frontend
 
-`test_integrity.py` covers checksum corruption, invalid magic, and truncated files.
+```bash
+npm install
+npm run typecheck
+npm run build
+npm run conformance
+```

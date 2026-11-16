@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "name": "Genz",
+    "active": true,
+    "score": 9.5,
+    "note": null,
+    "tags": [
+      "a",
+      "b"
+    ],
+    "meta": {
+      "city": "Jakarta"
+    }
+  },
+  {
+    "id": 2,
+    "name": "Ana",
+    "active": false,
+    "score": 3.25,
+    "emoji": "héllo wörld",
+    "tags": []
+  },
+  {
+    "id": 3,
+    "name": "Budi",
+    "score": 7,
+    "note": "plain"
+  }
+]

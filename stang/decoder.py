@@ -15,15 +15,20 @@ def decode_stg(container: STGContainer) -> list[dict[str, Any]]:
 
     The decoder normalizes the rotation state by merging blocks in their
     canonical storage order. This guarantees ``decode(encode(data)) == data``
-    semantically.
+    semantically, regardless of the stored rotation state.
     """
     return merge_blocks(container.blocks)
 
 
-def load_stg(path: str | Path) -> list[dict[str, Any]]:
+def load_stg(
+    path: str | Path,
+    *,
+    passphrase: str | bytes | None = None,
+    integrity_key: bytes | str | None = None,
+) -> list[dict[str, Any]]:
     """Load and decode a ``.stg`` file from disk."""
     data = Path(path).read_bytes()
-    container = STGContainer.deserialize(data)
+    container = STGContainer.deserialize(data, passphrase=passphrase, integrity_key=integrity_key)
     return decode_stg(container)
 
 

@@ -49,7 +49,7 @@ stang --version
 Expected output:
 
 ```text
-stang 1.0.0
+stang 2.0.0
 ```
 
 ```bash
