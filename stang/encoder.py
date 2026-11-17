@@ -15,9 +15,17 @@ from stang.container import (
     VERSION_V2,
     STGContainer,
 )
+from stang.errors import ContainerError
 from stang.schema import Schema
 
 DEFAULT_BLOCK_COUNT = 4
+
+
+def _reject_constant(value: str) -> Any:
+    """Fail on NaN/Infinity literals, which are not valid JSON."""
+    raise ContainerError(f"Non-finite number literal {value!r} is not allowed in JSON.")
+
+
 
 
 def encode_stg(
@@ -128,6 +136,24 @@ def save_stg(
     Path(path).write_bytes(container.serialize())
 
 
+def _parse_ndjson(text: str) -> list[dict[str, Any]]:
+    """Parse newline-delimited JSON: one JSON object per line."""
+    records: list[dict[str, Any]] = []
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            item = json.loads(line, parse_constant=_reject_constant)
+        except (json.JSONDecodeError, ContainerError) as exc:
+            raise ValueError(f"NDJSON line {lineno} is not valid JSON: {exc}") from exc
+        if not isinstance(item, Mapping):
+            kind = type(item).__name__
+            raise ValueError(f"NDJSON line {lineno} must be a JSON object, got {kind}.")
+        records.append(dict(item))
+    return records
+
+
 def encode_from_json(
     data: bytes,
     block_count: int = DEFAULT_BLOCK_COUNT,
@@ -136,24 +162,34 @@ def encode_from_json(
     integrity_key: bytes | str | None = None,
     compress: bool = False,
     format_version: int = VERSION_V2,
+    input_format: str = "json",
 ) -> STGContainer:
     """Encode from a raw JSON byte payload.
 
-    Accepts either a single object (treated as one record) or an array of
-    objects.
+    With ``input_format="json"`` (default), accepts either a single object
+    (treated as one record) or an array of objects. With ``input_format="ndjson"``,
+    expects newline-delimited JSON objects (blank lines and lines starting with
+    ``#`` are ignored).
     """
+    text = data.decode("utf-8", errors="strict") if isinstance(data, bytes) else data
     try:
-        parsed = json.loads(data.decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise ValueError(f"Input is not valid JSON: {exc}") from exc
-    if isinstance(parsed, dict):
-        records = [parsed]
-    elif isinstance(parsed, list):
-        if not all(isinstance(item, Mapping) for item in parsed):
-            raise ValueError("JSON array must contain only objects.")
-        records = parsed
-    else:
-        raise ValueError("JSON payload must be an object or an array of objects")
+        if input_format == "ndjson":
+            records: list[dict[str, Any]] = _parse_ndjson(text)
+        else:
+            try:
+                parsed = json.loads(text, parse_constant=_reject_constant)
+            except (json.JSONDecodeError, ContainerError) as exc:
+                raise ValueError(f"Input is not valid JSON: {exc}") from exc
+            if isinstance(parsed, dict):
+                records = [parsed]
+            elif isinstance(parsed, list):
+                if not all(isinstance(item, Mapping) for item in parsed):
+                    raise ValueError("JSON array must contain only objects.")
+                records = [dict(item) for item in parsed]
+            else:
+                raise ValueError("JSON payload must be an object or an array of objects")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"Input is not valid UTF-8: {exc}") from exc
     return encode_stg(
         records,
         block_count,

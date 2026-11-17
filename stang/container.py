@@ -74,10 +74,27 @@ KDF_METADATA = {
 }
 
 
+KNOWN_FLAG_BITS = FLAG_COMPRESSED | FLAG_ENCRYPTED | FLAG_HMAC
+
+
+def _reject_constant(value: str) -> Any:
+    """Fail on NaN/Infinity literals, which are not valid JSON."""
+    raise ContainerError(f"Non-finite number literal {value!r} is not allowed in STG containers.")
+
+
+def _loads_strict(text: str) -> Any:
+    """Parse JSON, rejecting NaN/Infinity constants (superset-of-JSON extensions)."""
+    return json.loads(text, parse_constant=_reject_constant)
+
+
 def _canonical_json(obj: Any) -> bytes:
-    """Serialize a JSON-compatible object with deterministic key ordering."""
+    """Serialize a JSON-compatible object with deterministic key ordering.
+
+    Raises ``ValueError`` when ``obj`` contains non-finite floats instead of
+    emitting non-standard ``NaN``/``Infinity`` literals.
+    """
     return json.dumps(
-        obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False
     ).encode("utf-8")
 
 
@@ -122,7 +139,14 @@ class STGContainer:
         if self.block_count > V2_MAX_BLOCKS:
             raise ContainerError(f"STG container supports at most {V2_MAX_BLOCKS} blocks.")
         self.rotation_state = rotation_state % self.block_count
-        self.flags = flags & 0xFF if format_version == VERSION_V1 else flags & 0x07
+        if format_version == VERSION_V1:
+            if flags != 0:
+                raise ContainerError(f"Invalid STG1 flags: expected 0, got {flags:#04x}.")
+        elif flags & ~KNOWN_FLAG_BITS:
+            raise ContainerError(f"Invalid flags: unknown bits set in {flags:#04x}.")
+        if (flags & FLAG_ENCRYPTED and flags & FLAG_HMAC) and format_version == VERSION_V2:
+            raise ContainerError("Invalid flags: encryption already authenticates the payload.")
+        self.flags = flags
         self.format_version = format_version
         self.salt: bytes = secrets.token_bytes(16) if self.flags & FLAG_ENCRYPTED else b"\x00" * 16
         self._passphrase = passphrase
@@ -398,6 +422,8 @@ class STGContainer:
             raise ContainerError(f"Invalid magic bytes: expected {MAGIC_V1!r}, got {magic!r}")
         if version != VERSION_V1:
             raise ContainerError(f"Unsupported STG version: {version}")
+        if flags != 0:
+            raise ContainerError(f"Invalid STG1 flags: expected 0, got {flags:#04x}.")
         if not verify_checksum(payload, expected_checksum):
             raise ContainerError("Checksum mismatch: container may be corrupted.")
 
@@ -407,15 +433,15 @@ class STGContainer:
         if schema_end > len(payload):
             raise ContainerError("Schema length points outside the payload.")
         try:
-            schema = Schema.from_dict(json.loads(schema_bytes.decode("utf-8")))
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            schema = Schema.from_dict(_loads_strict(schema_bytes.decode("utf-8")))
+        except (json.JSONDecodeError, UnicodeDecodeError, ContainerError) as exc:
             raise ContainerError("Failed to parse schema") from exc
 
         table_start = schema_end
-        table_decoder = json.JSONDecoder()
+        table_decoder = json.JSONDecoder(parse_constant=_reject_constant)
         try:
             table, _ = table_decoder.raw_decode(payload[table_start:].decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        except (json.JSONDecodeError, UnicodeDecodeError, ContainerError) as exc:
             raise ContainerError("Failed to parse block table") from exc
         if not isinstance(table, list):
             raise ContainerError("Block table must be a JSON array.")
@@ -430,8 +456,8 @@ class STGContainer:
                 raise ContainerError("Block table points outside payload bounds.")
             block_data = payload[block_offset : block_offset + block_size]
             try:
-                block = json.loads(block_data.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                block = _loads_strict(block_data.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError, ContainerError) as exc:
                 raise ContainerError("Failed to parse data block") from exc
             if not isinstance(block, list):
                 raise ContainerError("Data block must decode to a JSON array.")
@@ -458,7 +484,8 @@ class STGContainer:
             raise ContainerError(f"Unsupported STG version: {version}")
         if ext_len > V2_MAX_EXT_LEN:
             raise ContainerError("Header extension exceeds the 4 MiB limit.")
-        flags &= 0x07
+        if flags & ~KNOWN_FLAG_BITS:
+            raise ContainerError(f"Invalid flags: unknown bits set in {flags:#04x}.")
         if flags & FLAG_ENCRYPTED and flags & FLAG_HMAC:
             raise ContainerError("Invalid flags: encryption already authenticates the payload.")
 
@@ -490,8 +517,8 @@ class STGContainer:
             raise ContainerError("Header extension points outside the payload.")
         ext_bytes = payload[ext_start:ext_end]
         try:
-            extension = json.loads(ext_bytes.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            extension = _loads_strict(ext_bytes.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, ContainerError) as exc:
             raise ContainerError("Failed to parse header extension") from exc
         if not isinstance(extension, dict):
             raise ContainerError("Header extension must be a JSON object.")
@@ -527,8 +554,8 @@ class STGContainer:
                 except zlib.error as exc:
                     raise ContainerError(f"Failed to decompress block {index}") from exc
             try:
-                block = json.loads(plaintext.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                block = _loads_strict(plaintext.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError, ContainerError) as exc:
                 raise ContainerError(f"Failed to parse data block {index}") from exc
             if not isinstance(block, list):
                 raise ContainerError(f"Data block {index} must decode to a JSON array.")

@@ -10,8 +10,8 @@ const COMMANDS: { name: string; synopsis: string; description: string; example: 
   },
   {
     name: "stang encode",
-    synopsis: "stang encode INPUT.json OUTPUT.stg [--blocks N] [--rotation N] [--compress] [--encrypt] [--hmac] [--format stg1|stg2]",
-    description: "Encode a JSON object/array into a .stg container. '-' reads stdin / writes stdout.",
+    synopsis: "stang encode INPUT.json OUTPUT.stg [--blocks N] [--rotation N] [--compress] [--encrypt] [--hmac] [--format stg1|stg2] [--input-format json|ndjson]",
+    description: "Encode a JSON object/array (or NDJSON with --input-format ndjson) into a .stg container. '-' reads stdin / writes stdout.",
     example: "stang encode orders.json orders.stg --blocks 8 --compress --rotation 3",
   },
   {
@@ -49,6 +49,12 @@ const COMMANDS: { name: string; synopsis: string; description: string; example: 
     synopsis: "stang convert INPUT.stg OUTPUT.stg --to stg1|stg2",
     description: "Re-wrap between wire formats. STG2→STG1 refuses to drop compression or crypto.",
     example: "stang convert legacy.stg current.stg --to stg2",
+  },
+  {
+    name: "stang diff",
+    synopsis: "stang diff A.stg B.stg [--json]",
+    description: "Semantic record-diff between two containers. Exit 0 = identical, 1 = different, 2 = credentials required.",
+    example: "stang diff before.stg after.stg",
   },
   {
     name: "stang keygen",

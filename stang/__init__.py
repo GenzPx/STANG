@@ -24,7 +24,7 @@ from stang.nodes import Node, NodeError, Pipeline, PipelineError
 from stang.rotation import RotationEngine
 from stang.schema import Schema, SchemaError
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 __all__ = [
     "AuthenticationError",

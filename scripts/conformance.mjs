@@ -101,6 +101,59 @@ console.log("• Byte-exact AEAD round-trip (uncompressed, pinned salt+nonces)")
   );
 }
 
+console.log("• Canonical JSON edge cases (must match Python json.dumps)");
+{
+  const cases = [
+    [0, "0"],
+    [1, "1"],
+    [0.5, "0.5"],
+    [-7.75, "-7.75"],
+    [12345.678, "12345.678"],
+    [1e-7, "1e-07"],
+    [0.0001, "0.0001"],
+    [1e-5, "1e-05"],
+    [1e15, "1000000000000000"],
+    [1e16, "1e+16"],
+    [1e17, "1e+17"],
+    [1e21, "1e+21"],
+    [1.5e21, "1.5e+21"],
+    [2e20, "2e+20"],
+    [5e-324, "5e-324"],
+    [123456789.123456789, "123456789.12345679"],
+    [9007199254740991, "9007199254740991"],
+  ];
+  for (const [input, expected] of cases) {
+    const actual = codec.canonicalJsonString(input);
+    ok(`number ${String(input)} -> ${expected}`, actual === expected);
+  }
+  // Key ordering is by Unicode code point, not UTF-16 code units.
+  const astralFirst = String.fromCodePoint(0xffff);
+  const astralSecond = String.fromCodePoint(0x10000);
+  const keyed = {};
+  keyed[astralSecond] = 1;
+  keyed[astralFirst] = 2;
+  ok(
+    "astral keys sort by code point",
+    codec.canonicalJsonString(keyed)
+      === `{"${astralFirst}":2,"${astralSecond}":1}`,
+  );
+}
+
+console.log("• Unknown flag bits are rejected");
+{
+  for (const [name, fixture] of [["STG2", "golden_plain.stg"]]) {
+    const mutated = Buffer.from(readFileSync(join(fixtures, fixture)));
+    mutated[5] |= 0x08;
+    let rejected = false;
+    try {
+      await codec.parseStg(new Uint8Array(mutated));
+    } catch (error) {
+      rejected = String(error).includes("unknown bits");
+    }
+    ok(`${name} flags with unknown bits rejected`, rejected);
+  }
+}
+
 console.log("• v1 legacy container support");
 const v1 = await codec.serializeStg({ records, blockCount: 2, format: "stg1" });
 const v1Parsed = await codec.parseStg(v1);

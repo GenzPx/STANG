@@ -69,8 +69,9 @@ Packed as `!4sBBIIH16s` (C struct format). Total: **32 bytes**.
 | 0x02 | `ENCRYPTED` | Blocks are sealed with the AEAD construction in [Encryption](#encryption) |
 | 0x04 | `HMAC` | Trailer is HMAC-SHA256 with a caller-supplied integrity key |
 
-`0x02` and `0x04` are mutually exclusive (`0x02` already authenticates). Unknown bits MUST be
-ignored by readers and MUST be written as zero.
+`0x02` and `0x04` are mutually exclusive (`0x02` already authenticates). Unknown flag bits MUST
+be rejected by readers with an error and MUST be written as zero. STG1 containers MUST carry
+`flags = 0`.
 
 ## Header Extension
 
@@ -175,6 +176,16 @@ blob      := nonce (16 B) ‖ ciphertext
 - Strings: minimal escaping; control characters as `\uXXXX` (lowercase hex); short escapes
   `\b \f \n \r \t \" \\` used where applicable; all other characters emitted raw as UTF-8.
 - `ensure_ascii=False` equivalent — non-ASCII characters are never `\uXXXX`-escaped.
+- Object keys are sorted by Unicode code points, recursively.
+- NaN and Infinity are NOT valid JSON and MUST be rejected by readers on input and by writers
+  on output (STANG writers emit them never).
+- Integral numbers with absolute value below 2^53 are written as integer literals. Numbers with
+  absolute value ≥ 1e16 (or < 1e-4) use scientific notation with a two-digit signed exponent
+  (`1e+16`, `1e-07`).
+- Known cross-implementation limit (STG2, JS runtimes): numbers cannot distinguish a Python
+  `int` from an integral `float`, and integers beyond 2^53 lose precision in JSON.parse.
+  Producers exchanging containers with numbers ≥ 2^53 MUST use the Python implementation or
+  pre-encode such values as strings.
 
 Writers MUST use canonical JSON for schema, extension, blocks and the v1 block table.
 
@@ -195,6 +206,7 @@ Readers MUST:
 - reject unsupported `version` values;
 - reject `ext_len > 4 MiB`;
 - reject `0x02 | 0x04` flag combinations;
+- reject any unknown flag bits;
 - bounds-check every region before slicing (schema/extension, table, blocks, trailer);
 - reject trailing bytes after the last block;
 - verify the trailer before parsing any payload content;

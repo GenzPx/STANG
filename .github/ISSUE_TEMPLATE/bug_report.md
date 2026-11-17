@@ -22,6 +22,7 @@ What you expected to happen.
 - OS:
 - Python version:
 - STANG version:
+- File format: STG1 / STG2
 
 ## Additional context
 

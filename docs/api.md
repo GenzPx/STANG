@@ -1,6 +1,6 @@
 # API Documentation
 
-STANG exposes a Python API and a CLI. This page documents the Python API (v2.0.0).
+STANG exposes a Python API and a CLI. This page documents the Python API (v2.1.0).
 
 ## `stang.encode_stg`
 
@@ -40,10 +40,12 @@ Encode records and write a `.stg` file.
 
 ```python
 encode_from_json(data, block_count=4, *, passphrase=None, integrity_key=None,
-                 compress=False, format_version=2) -> STGContainer
+                 compress=False, format_version=2, input_format="json") -> STGContainer
 ```
 
-Accepts a single JSON object (one record) or an array of objects.
+Accepts a single JSON object (one record) or an array of objects. With
+`input_format="ndjson"`, expects newline-delimited JSON objects (blank lines and `#` comment
+lines are ignored).
 
 ## `stang.decode_stg`
 

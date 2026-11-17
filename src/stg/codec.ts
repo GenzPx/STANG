@@ -19,6 +19,7 @@ export const MAGIC_V2 = "STG2";
 export const FLAG_COMPRESSED = 0x01;
 export const FLAG_ENCRYPTED = 0x02;
 export const FLAG_HMAC = 0x04;
+export const KNOWN_FLAG_BITS = FLAG_COMPRESSED | FLAG_ENCRYPTED | FLAG_HMAC;
 export const NONCE_SIZE = 16;
 export const V2_HEADER_SIZE = 32;
 export const V1_HEADER_SIZE = 14;
@@ -133,17 +134,85 @@ export function fromHex(hex: string): Uint8Array {
 /* Canonical JSON (Python `json.dumps(..., sort_keys=True)` compatible) */
 /* ------------------------------------------------------------------ */
 
+// Shortest-round-trip float rendering that matches Python's `repr(float)`
+// (which is what `json.dumps(..., ensure_ascii=False)` uses): plain decimal
+// with a trailing ".0" for integral values below 1e16, scientific notation
+// otherwise, and at least two exponent digits with a sign.
+function floatToCanonical(absValue: number): string {
+  if (absValue === 0) return "0";
+  const s = String(absValue);
+  let digits = "";
+  let exp10 = 0;
+  const eIndex = s.indexOf("e");
+  if (eIndex >= 0) {
+    // JS shortest form already uses scientific notation, e.g. "1.5e+21".
+    const mantissa = s.slice(0, eIndex);
+    const jsExp = Number.parseInt(s.slice(eIndex + 1), 10);
+    const dot = mantissa.indexOf(".");
+    const intPart = (dot >= 0 ? mantissa.slice(0, dot) : mantissa).replace(/^0+/, "");
+    const fracPart = dot >= 0 ? mantissa.slice(dot + 1) : "";
+    digits = (intPart + fracPart).replace(/0+$/, "");
+    exp10 = jsExp;
+  } else {
+    const dot = s.indexOf(".");
+    const rawInt = dot >= 0 ? s.slice(0, dot) : s;
+    const fracPart = dot >= 0 ? s.slice(dot + 1) : "";
+    const intPart = rawInt.replace(/^0+/, "");
+    if (intPart) {
+      exp10 = intPart.length - 1;
+      digits = (intPart + fracPart).replace(/0+$/, "");
+    } else {
+      const lead = fracPart.match(/^0*/)?.[0].length ?? 0;
+      exp10 = -(lead + 1);
+      digits = fracPart.slice(lead).replace(/0+$/, "");
+    }
+  }
+  if (digits.length === 0) {
+    return "0";
+  }
+  const scientific = exp10 < -4 || exp10 >= 16;
+  if (scientific) {
+    const mantissa = digits.length > 1 ? `${digits[0]}.${digits.slice(1)}` : digits[0];
+    const sign = exp10 >= 0 ? "+" : "-";
+    const exponent = String(Math.abs(exp10)).padStart(2, "0");
+    return `${mantissa}e${sign}${exponent}`;
+  }
+  if (exp10 >= digits.length - 1) {
+    return `${digits}${"0".repeat(exp10 - digits.length + 1)}`;
+  }
+  if (exp10 >= 0) {
+    return `${digits.slice(0, exp10 + 1)}.${digits.slice(exp10 + 1)}`;
+  }
+  return `0.${"0".repeat(-exp10 - 1)}${digits}`;
+}
+
+// NOTE: JS numbers cannot distinguish an integer (Python `int`) from a float
+// with an integral value (Python `1.0`, canonical "1.0"). The canonical form
+// therefore renders integral values as integer literals, matching the Python
+// int rendering and the historical behaviour of this codec.
 function numberToCanonical(value: number): string {
   if (!Number.isFinite(value)) {
     throw new StgError("Non-finite numbers cannot be encoded in JSON.");
   }
-  if (Number.isInteger(value) && Math.abs(value) < 1e16) {
-    return String(value);
+  const negative = value < 0;
+  const body = floatToCanonical(Math.abs(value));
+  return negative ? `-${body}` : body;
+}
+
+// Code-point-aware comparison: Python's `sort_keys=True` orders by Unicode
+// code points, while JS's default string comparison orders by UTF-16 code
+// units (which disagrees for astral-plane characters).
+function compareCodePoints(a: string, b: string): number {
+  let ai = 0;
+  let bi = 0;
+  while (ai < a.length && bi < b.length) {
+    const ac = a.codePointAt(ai) as number;
+    const bc = b.codePointAt(bi) as number;
+    if (ac !== bc) return ac - bc;
+    ai += ac > 0xffff ? 2 : 1;
+    bi += bc > 0xffff ? 2 : 1;
   }
-  let text = String(value);
-  // Python renders exponents as e-07 / e+21; V8 renders e-7 / e+21.
-  text = text.replace(/e-(\d)$/, "e-0$1");
-  return text;
+  return (a.length - ai) - (b.length - bi);
 }
 
 function writeCanonical(value: unknown): string {
@@ -157,7 +226,7 @@ function writeCanonical(value: unknown): string {
   }
   if (kind === "object") {
     const record = value as Record<string, unknown>;
-    const keys = Object.keys(record).sort();
+    const keys = Object.keys(record).sort(compareCodePoints);
     const fields = keys.map((key) => `${JSON.stringify(key)}:${writeCanonical(record[key])}`);
     return `{${fields.join(",")}}`;
   }
@@ -666,6 +735,9 @@ async function parseStgV1(data: Uint8Array): Promise<ParsedContainer> {
   const version = view.getUint8(4);
   if (version !== 1) throw new StgError(`Unsupported STG version: ${version}`);
   const flags = view.getUint8(5);
+  if (flags !== 0) {
+    throw new StgError(`Invalid STG1 flags: expected 0, got 0x${flags.toString(16).padStart(2, "0")}`);
+  }
   const rotationState = view.getUint32(6, false);
   const schemaLen = view.getUint32(10, false);
 
@@ -784,6 +856,9 @@ async function parseStgV2(data: Uint8Array, options: ParseOptions): Promise<Pars
 
   if (extLen > 4 * 1024 * 1024) {
     throw new StgError("Header extension exceeds the 4 MiB limit.");
+  }
+  if ((flags & ~KNOWN_FLAG_BITS) !== 0) {
+    throw new StgError(`Invalid flags: unknown bits set in 0x${flags.toString(16).padStart(2, "0")}`);
   }
   if ((flags & FLAG_ENCRYPTED) && (flags & FLAG_HMAC)) {
     throw new StgError("Invalid flags: encryption already authenticates the payload.");

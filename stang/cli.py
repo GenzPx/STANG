@@ -21,7 +21,7 @@ from stang.container import (
     MAGIC_V2,
     STGContainer,
 )
-from stang.decoder import decode_to_json
+from stang.decoder import decode_stg, decode_to_json
 from stang.encoder import encode_from_json, save_stg
 from stang.errors import AuthenticationError, ContainerError, IntegrityError, STANGError
 from stang.rotation import RotationEngine
@@ -183,6 +183,7 @@ def cmd_encode(args: argparse.Namespace) -> int:
         integrity_key=integrity_key,
         compress=args.compress,
         format_version=_format_to_version(args.wire_format),
+        input_format=args.input_format,
     )
     if args.rotation is not None:
         container.rotation_state = args.rotation % container.block_count
@@ -349,6 +350,95 @@ def cmd_rotate(args: argparse.Namespace) -> int:
     return 0
 
 
+class _CredentialsRequiredError(Exception):
+    """Raised when a diff side needs credentials that were not supplied."""
+
+    def __init__(self, path: str, kind: str) -> None:
+        super().__init__(f"{path}: {kind}")
+        self.path = path
+        self.kind = kind
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Semantically diff two containers (record multiset comparison)."""
+    from collections import Counter
+
+    def _load_with_credentials(path: str) -> STGContainer:
+        data = _read_bytes(path)
+        encrypted = _sniff_encrypted(data)
+        keyed = _sniff_hmac(data)
+        if encrypted and not _has_passphrase_source(args):
+            raise _CredentialsRequiredError(path, "encrypted")
+        if keyed and not getattr(args, "key_env", None) and not getattr(args, "key_file", None):
+            raise _CredentialsRequiredError(path, "integrity-keyed")
+        passphrase = resolve_passphrase_readonly(args) if encrypted else None
+        integrity_key = resolve_integrity_key(args) if keyed else None
+        return STGContainer.deserialize(data, passphrase=passphrase, integrity_key=integrity_key)
+
+    try:
+        a = _load_with_credentials(args.a)
+        b = _load_with_credentials(args.b)
+    except _CredentialsRequiredError as exc:
+        print(f"{exc.path}: {exc.kind.upper()} (supply the matching credentials to diff)")
+        return 2
+
+    records_a = decode_stg(a)
+    records_b = decode_stg(b)
+
+    def _fingerprint(record: object) -> str:
+        return json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    counter_a = Counter(_fingerprint(r) for r in records_a)
+    counter_b = Counter(_fingerprint(r) for r in records_b)
+    only_a = counter_a - counter_b
+    only_b = counter_b - counter_a
+    identical = not only_a and not only_b
+
+    info_diffs: list[str] = []
+    if a.format_version != b.format_version:
+        info_diffs.append(f"format stg{a.format_version} -> stg{b.format_version}")
+    if a.flags != b.flags:
+        info_diffs.append(f"flags {a.flags:#04x} -> {b.flags:#04x}")
+    if a.block_count != b.block_count:
+        info_diffs.append(f"blocks {a.block_count} -> {b.block_count}")
+    if a.rotation_state != b.rotation_state:
+        info_diffs.append(f"rotation {a.rotation_state} -> {b.rotation_state}")
+    if a.schema.to_dict() != b.schema.to_dict():
+        info_diffs.append("schema changed")
+
+    if args.json:
+        print(json.dumps({
+            "a": args.a,
+            "b": args.b,
+            "records_a": len(records_a),
+            "records_b": len(records_b),
+            "only_in_a": sum(only_a.values()),
+            "only_in_b": sum(only_b.values()),
+            "identical_records": identical,
+            "differences": info_diffs,
+        }, indent=2))
+    else:
+        print(f"A        : {args.a} ({len(records_a)} records, STG{a.format_version})")
+        print(f"B        : {args.b} ({len(records_b)} records, STG{b.format_version})")
+        if identical:
+            print("Records  : identical (order-independent)")
+        else:
+            print(f"Records  : DIFFERENT ({sum(only_a.values())} only in A, "
+                  f"{sum(only_b.values())} only in B)")
+            for source, label in ((only_a, "A"), (only_b, "B")):
+                shown = 0
+                for fingerprint, count in sorted(source.items()):
+                    if shown >= 5:
+                        print(f"  ... and {sum(source.values()) - shown} more only in {label}")
+                        break
+                    print(f"  only in {label} (x{count}): {fingerprint}")
+                    shown += count
+        if info_diffs:
+            print(f"Notes    : {'; '.join(info_diffs)}")
+        print(f"Result   : {'IDENTICAL' if identical else 'DIFFERENT'}")
+    return 0 if identical else 1
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Verify container integrity."""
     data = _read_bytes(args.input)
@@ -462,6 +552,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help="Encrypt blocks (prompts for passphrase)")
     encode.add_argument("--hmac", action="store_true",
                       help="HMAC-SHA256 integrity instead of plain SHA-256")
+    encode.add_argument("--input-format", dest="input_format", choices=("json", "ndjson"),
+                       default="json", help="Input syntax: 'json' (default) or 'ndjson'")
     add_secret_arguments(encode, write=True)
     add_format_argument(encode)
     encode.set_defaults(func=cmd_encode)
@@ -507,6 +599,16 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument("--to", choices=SUPPORTED_FORMATS, required=True, help="Target format")
     add_secret_arguments(convert, write=True)
     convert.set_defaults(func=cmd_convert)
+
+    diff = sub.add_parser(
+        "diff",
+        help="Diff two .stg containers semantically (0 identical, 1 different, 2 credentials)",
+    )
+    diff.add_argument("a", help="First .stg file")
+    diff.add_argument("b", help="Second .stg file")
+    diff.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    add_secret_arguments(diff, write=True)
+    diff.set_defaults(func=cmd_diff)
 
     keygen = sub.add_parser("keygen", help="Generate a random passphrase")
     keygen.add_argument("--bytes", type=int, default=32,

@@ -31,6 +31,10 @@ We will acknowledge receipt within 72 hours and work toward a resolution.
   at the trailer check before any block is examined.
 - **Bounds**: readers validate magic, version, flags combination, extension size and every
   region offset before slicing; trailing garbage is rejected.
+- **Strict flags**: unknown flag bits (STG2) and any non-zero flags (STG1) are rejected, not
+  silently ignored.
+- **Strict JSON**: NaN/Infinity literals are not valid JSON and are rejected on both read and
+  write paths.
 - **No partial data**: verification happens before payload parsing; failures yield no records.
 - Verification never depends on network access. The core library performs no network I/O.
 

@@ -186,3 +186,80 @@ def test_dump_markdown_and_md_alias(tmp_path, capsys):
     assert main(["encode", str(src), str(stg)]) == 0
     assert main(["dump", str(stg), "--format", "markdown"]) == 0
     assert "| id |" in capsys.readouterr().out
+
+
+def test_encode_ndjson(tmp_path, capsys):
+    nd = tmp_path / "input.ndjson"
+    nd.write_text(
+        '{"id": 1, "name": "a"}\n'
+        '\n'
+        '# comment line is ignored\n'
+        '{"id": 2, "name": "b"}\n',
+        encoding="utf-8",
+    )
+    stg = tmp_path / "out.stg"
+    assert main(["encode", str(nd), str(stg), "--input-format", "ndjson"]) == 0
+    capsys.readouterr()
+    out = tmp_path / "out.json"
+    assert main(["decode", str(stg), str(out)]) == 0
+    assert json.loads(out.read_text()) == [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+
+
+def test_encode_ndjson_rejects_non_object_line(tmp_path, capsys):
+    nd = tmp_path / "bad.ndjson"
+    nd.write_text('{"id": 1}\n[1, 2]\n', encoding="utf-8")
+    assert main(["encode", str(nd), str(tmp_path / "x.stg"), "--input-format", "ndjson"]) == 1
+    assert "NDJSON line 2" in capsys.readouterr().err
+
+
+def test_diff_identical_different_rotation(tmp_path, capsys):
+    records = [{"id": i, "name": f"n{i}"} for i in range(6)]
+    src = _write_json(tmp_path, records)
+    a = tmp_path / "a.stg"
+    b = tmp_path / "b.stg"
+    assert main(["encode", str(src), str(a), "--rotation", "0"]) == 0
+    assert main(["encode", str(src), str(b), "--rotation", "2"]) == 0
+    assert main(["diff", str(a), str(b)]) == 0
+    out = capsys.readouterr().out
+    assert "IDENTICAL" in out
+    assert "rotation" in out  # informational note about the rotation difference
+
+
+def test_diff_detects_record_change(tmp_path, capsys):
+    src_a = _write_json(tmp_path, [{"id": 1}, {"id": 2}])
+    src_b = tmp_path / "b.json"
+    src_b.write_text(json.dumps([{"id": 1}, {"id": 3}]), encoding="utf-8")
+    a = tmp_path / "a.stg"
+    b = tmp_path / "b.stg"
+    assert main(["encode", str(src_a), str(a)]) == 0
+    assert main(["encode", str(src_b), str(b)]) == 0
+    assert main(["diff", str(a), str(b)]) == 1
+    out = capsys.readouterr().out
+    assert "DIFFERENT" in out
+    assert "1 only in A" in out and "1 only in B" in out
+
+
+def test_diff_json_output(tmp_path, capsys):
+    records = [{"id": 1}]
+    src = _write_json(tmp_path, records)
+    a = tmp_path / "a.stg"
+    b = tmp_path / "b.stg"
+    assert main(["encode", str(src), str(a)]) == 0
+    assert main(["encode", str(src), str(b)]) == 0
+    assert main(["diff", str(a), str(b), "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["identical_records"] is True
+    assert report["records_a"] == report["records_b"] == 1
+
+
+def test_diff_encrypted_without_credentials(tmp_path, capsys):
+    src = _write_json(tmp_path, [{"id": 1}])
+    stg = tmp_path / "secret.stg"
+    os.environ["STANG_TEST_PASSPHRASE"] = "pw"
+    try:
+        assert main(["encode", str(src), str(stg), "--encrypt",
+                     "--passphrase-env", "STANG_TEST_PASSPHRASE"]) == 0
+        capsys.readouterr()
+        assert main(["diff", str(stg), str(stg)]) == 2
+    finally:
+        del os.environ["STANG_TEST_PASSPHRASE"]

@@ -34,6 +34,7 @@ Options:
 - `--passphrase-env VAR` / `--passphrase-file PATH` — passphrase source
 - `--key-env VAR` / `--key-file PATH` — raw integrity key source
 - `--format stg1|stg2` — wire format (default stg2)
+- `--input-format json|ndjson` — input syntax (default `json`; `ndjson` accepts newline-delimited objects, `#` comment lines and blank lines ignored)
 
 ```bash
 stang encode data.json data.stg --blocks 8 --rotation 3 --compress
@@ -99,6 +100,22 @@ Exit codes: `0` valid · `1` invalid · `2` credentials required.
 stang verify data.stg
 stang verify secret.stg --passphrase-env STANG_PASSPHRASE
 ```
+
+### `stang diff <a.stg> <b.stg>`
+
+Semantic comparison of two containers — record order in blocks is ignored. Reports record
+deltas (multiset, canonical JSON fingerprint), schema/format/flags/block/rotation differences.
+
+Exit codes: `0` identical records · `1` different records · `2` credentials required.
+
+- `--json` — machine-readable report
+
+```bash
+stang diff before.stg after.stg
+stang diff a.stg b.stg --json | jq .identical_records
+```
+
+Note: rotation differences are reported as informational notes; they do not affect the exit code.
 
 ### `stang convert <input.stg> <output.stg> --to stg1|stg2`
 

@@ -35,7 +35,7 @@ pip install -e .
 Verify:
 
 ```bash
-stang --version   # stang 2.0.0
+stang --version   # stang 2.1.0
 stang status
 ```
 
@@ -97,8 +97,11 @@ Open the built page, or run `npm run preview`.
 | `stang rotate INPUT.stg OFFSET` | Bump the logical rotation state (±N) |
 | `stang verify INPUT.stg` | Authenticate; exit 0 valid · 1 invalid · 2 credentials required |
 | `stang convert INPUT.stg OUTPUT.stg --to stg1\|stg2` | Re-wrap between wire formats |
+| `stang diff A.stg B.stg` | Semantic record-diff (0 identical · 1 different · 2 credentials) |
 | `stang keygen [--bytes N] [--hex]` | Generate a strong random passphrase |
 | `stang status` | Runtime summary |
+
+`stang encode --input-format ndjson` ingests newline-delimited JSON directly.
 
 Secrets are never passed as bare arguments — use `--passphrase-env VAR`, `--passphrase-file PATH`, `--key-env VAR` or `--key-file PATH`, or the interactive prompt. `-` as file argument means stdin/stdout.
 

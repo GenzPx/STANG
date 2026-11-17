@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stang"
-version = "2.0.0"
+version = "2.1.0"
 description = "STANG: a rotational data container file format and toolkit"
 readme = "README.md"
 license = {text = "LICENSE TO BE DETERMINED"}
@@ -14,7 +14,8 @@ authors = [
 ]
 keywords = ["container", "file-format", "rotation", "encoder", "decoder", "binary"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
+    "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3",

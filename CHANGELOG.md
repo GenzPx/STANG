@@ -5,6 +5,39 @@ All notable changes to STANG are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-11-16
+
+Hardening and interoperability release. Format unchanged (STG2 stays STG2); writers and
+readers are stricter and byte-agreement between the Python and TypeScript implementations
+is now enforced by CI-grade checks.
+
+### Added
+
+- `stang diff A.stg B.stg [--json]` — semantic, order-independent record comparison of two
+  containers (multiset on canonical JSON fingerprints). Exit `0` identical · `1` different ·
+  `2` credentials required. Header/format/flags/rotation differences are reported as
+  informational notes and never affect the exit code.
+- `stang encode --input-format ndjson` — newline-delimited JSON input (blank lines and `#`
+  comment lines are ignored).
+- Canonical JSON suite in `scripts/conformance.mjs` (float rendering, astral-plane key
+  ordering) and at Python level (`tests/test_canonical_json.py`).
+
+### Fixed
+
+- **Cross-implementation canonical JSON**: the TypeScript codec now renders numbers exactly
+  like Python's `json.dumps(..., ensure_ascii=False)` — integer literals below 1e16,
+  scientific notation with two-digit signed exponents at ≥ 1e16 / < 1e-4, and code-point
+  key ordering (was UTF-16). Verified on 500 random doubles against the Python reference.
+- Integrity/consistency: containers with `FLAG_ENCRYPTED | FLAG_HMAC` are rejected at
+  construction time, not only at serialize time.
+
+### Security
+
+- **Strict flag validation**: readers reject unknown flag bits (STG2) and any non-zero flags
+  (STG1) instead of silently masking them.
+- **Strict JSON everywhere**: NaN/Infinity no longer parse inside STG containers or as
+  encoder input; `json.dumps(..., allow_nan=False)` on the Python writer path.
+
 ## [2.0.0] - 2026-11-16
 
 A ground-up upgrade: new wire format, encryption, compression, a second (TypeScript)

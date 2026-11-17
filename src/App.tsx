@@ -32,7 +32,7 @@ export default function App() {
                 <span className="text-[1.05rem] font-black tracking-[0.22em] text-slate-100">
                   STANG
                 </span>
-                <span className="chip chip-info !py-0.5">v2.0.0</span>
+                <span className="chip chip-info !py-0.5">v2.1.0</span>
               </div>
               <div className="text-[0.58rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 Rotational Data Container
